@@ -1,0 +1,16 @@
+## Interface: 120000
+## Title: Buff Forge
+## Notes: Track specific buffs with icons and timers
+## Author: Antigravity
+## Version: 1.2
+## SavedVariables: BuffForgeDB
+## IconTexture: Interface\Icons\INV_Hammer_01
+## AddonCompartmentFunc: BuffForge_OnAddonCompartmentClick
+
+ForgeSkin.lua
+Lib\LibCustomGlow-1.0\LibStub\LibStub.lua
+Lib\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
+GlowEngine.lua
+SpellDatabase.lua
+Core.lua
+Config.lua
