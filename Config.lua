@@ -34,16 +34,26 @@ function Config:CreateUI()
     f = CreateFrame("Frame", "BuffForgeConfig", UIParent, "BackdropTemplate")
     f:Hide()
     f:SetSize(800, 550)
+    
+    -- Not: Eğer pencerenin son konumunu hatırlamasını istiyorsanız SetPoint'i bir koşula bağlayabilirsiniz.
+    -- Şimdilik varsayılan olarak CENTER bırakıyoruz, çakışmayı önlemek için.
     f:SetPoint("CENTER")
+    
     f:SetMovable(true)
     f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    
+    -- [DÜZELTME BURADA]
+    -- Aşağıdaki 3 satır SİLİNDİ. Bu satırlar ana gövdeye tıklandığında da sürüklemeye çalışıyor
+    -- ve TitleBar ile çakışıp pencereyi fırlatıyordu.
+    -- f:RegisterForDrag("LeftButton")
+    -- f:SetScript("OnDragStart", f.StartMoving)
+    -- f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    
     f:SetFrameStrata("HIGH")
     f:SetScript("OnHide", function() addon.ConfigMode = false; addon:ScanAuras() end)
     
     Skin:ApplyBackdrop(f)
+    -- TitleBar zaten kendi içinde sürükleme (StartMoving) koduna sahip
     Skin:CreateTitleBar(f, "BuffForge Settings", function() f:Hide() end)
 
     self.tabButtons = {}
@@ -125,9 +135,8 @@ end
 
 function Config:DrawGeneral(p)
     local y = -10
-    -- Global Settings Divider (Referans aldığımız orijinal yapı)
     local h1 = Skin:CreateSectionHeader(p, "GLOBAL SETTINGS")
-    h1:SetPoint("TOPLEFT", 10, y); y = y - 40
+    h1:SetPoint("TOPLEFT", 10, y); y = y - 40 
     
     local anchors = Skin:CreateCheckbox(p, "Unlock Anchors", BuffForgeDB.global.anchorsUnlocked, function(val) addon:ToggleAnchors() end)
     anchors:SetPoint("TOPLEFT", 10, y); y = y - 40
@@ -138,7 +147,9 @@ end
 function Config:DrawSpells(p)
     -- 1. Edit Box
     local input = CreateFrame("EditBox", nil, p, "BackdropTemplate")
-    input:SetSize(160, 24); input:SetPoint("TOPLEFT", 10, -5)
+    input:SetSize(151, 24)
+    input:SetPoint("TOPLEFT", 0, -5)
+    
     Skin:ApplyBackdrop(input); input:SetBackdropColor(0.1, 0.1, 0.1, 1)
     input:SetFontObject("GameFontHighlight"); input:SetAutoFocus(false); input:SetTextInsets(5, 5, 0, 0); input:SetText("ID/Name")
     
@@ -166,7 +177,6 @@ function Config:DrawSpells(p)
                  end
                  addon:UpdateIcon(id); 
                  local parent = p
-                 -- Temizle ve yeniden çiz
                  for _, c in ipairs({parent:GetChildren()}) do c:Hide(); c:SetParent(nil) end
                  for _, r in ipairs({parent:GetRegions()}) do r:Hide(); r:SetParent(nil) end
                  self:DrawSpells(parent)
@@ -217,21 +227,18 @@ function Config:DrawSpells(p)
     
     local dd
     if #dbSpells > 0 then
-        dd = Skin:CreateDropdown(p, 250, dbSpells, function(val)
+        dd = Skin:CreateDropdown(p, 170, dbSpells, function(val)
             if val then input:SetText(val) end
         end)
         dd:SetPoint("LEFT", addBtn, "RIGHT", 10, 0)
         dd.text:SetText("Select Spell from Book...")
     end
 
-    -- 4. CURRENT SELECTED SPELL NAME LABEL (Next to Dropdown)
+    -- 4. CURRENT SELECTED SPELL NAME LABEL
     self.selectedSpellLabel = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    if dd then
-        self.selectedSpellLabel:SetPoint("LEFT", dd, "RIGHT", 15, 0)
-    else
-        self.selectedSpellLabel:SetPoint("LEFT", addBtn, "RIGHT", 15, 0)
-    end
-    self.selectedSpellLabel:SetTextColor(1, 0.84, 0, 1) -- Gold Color
+    self.selectedSpellLabel:SetPoint("TOPRIGHT", p, "TOPRIGHT", -20, -8)
+    self.selectedSpellLabel:SetJustifyH("RIGHT")
+    self.selectedSpellLabel:SetTextColor(1, 0.84, 0, 1) 
     self.selectedSpellLabel:SetText("")
     
     -- Separator
@@ -267,21 +274,30 @@ function Config:DrawSpells(p)
         local btn = CreateFrame("Button", nil, listChild, "BackdropTemplate")
         btn:SetSize(180, 28); btn:SetPoint("TOPLEFT", 0, ly)
         local isSelected = (self.selectedSpellID == id)
-        if isSelected then Skin:ApplyBackdrop(btn); btn:SetBackdropColor(unpack(Skin.Colors.accent)); btn:SetBackdropBorderColor(unpack(Skin.Colors.accentHover))
-        else Skin:ApplyBackdrop(btn, 0); btn:SetBackdropBorderColor(0,0,0,0) end
+        if isSelected then 
+            Skin:ApplyBackdrop(btn); btn:SetBackdropColor(unpack(Skin.Colors.accent)); btn:SetBackdropBorderColor(unpack(Skin.Colors.accentHover))
+        else 
+            Skin:ApplyBackdrop(btn, 0); btn:SetBackdropBorderColor(0,0,0,0) 
+        end
         self.spellListButtons[id] = btn
         local info = C_Spell.GetSpellInfo(id)
         local name = info and info.name or id
         local icon = info and info.iconID or 134400
         local ico = btn:CreateTexture(nil, "ARTWORK"); ico:SetSize(24, 24); ico:SetPoint("LEFT", 5, 0); ico:SetTexture(icon)
         local t = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); t:SetPoint("LEFT", ico, "RIGHT", 8, 0); t:SetWidth(125); t:SetJustifyH("LEFT"); t:SetText(name)
-        if isSelected then t:SetTextColor(0,0,0) else t:SetTextColor(1,1,1) end; btn.text = t
+        
+        if isSelected then t:SetTextColor(1,1,1) else t:SetTextColor(1,1,1) end; btn.text = t
         
         btn:SetScript("OnClick", function()
             self.selectedSpellID = id
             for bid, b in pairs(self.spellListButtons) do
-                if bid == id then Skin:ApplyBackdrop(b); b:SetBackdropColor(unpack(Skin.Colors.accent)); if b.text then b.text:SetTextColor(0,0,0) end
-                else Skin:ApplyBackdrop(b, 0); b:SetBackdropBorderColor(0,0,0,0); if b.text then b.text:SetTextColor(1,1,1) end end
+                if bid == id then 
+                    Skin:ApplyBackdrop(b); b:SetBackdropColor(unpack(Skin.Colors.accent)); 
+                    if b.text then b.text:SetTextColor(1,1,1) end
+                else 
+                    Skin:ApplyBackdrop(b, 0); b:SetBackdropBorderColor(0,0,0,0); 
+                    if b.text then b.text:SetTextColor(1,1,1) end 
+                end
             end
             self:DrawSpellSettings(settingsChild, id, opts)
         end)
@@ -293,7 +309,6 @@ function Config:DrawSpells(p)
         delBtn:SetScript("OnClick", function()
             BuffForgeDB.profile[k][id] = nil; addon:UpdateIcon(id)
             local parent = p
-            -- Temizle ve yeniden çiz
             for _, c in ipairs({parent:GetChildren()}) do c:Hide(); c:SetParent(nil) end
             for _, r in ipairs({parent:GetRegions()}) do r:Hide(); r:SetParent(nil) end
             self:DrawSpells(parent)
@@ -308,7 +323,7 @@ function Config:DrawSpells(p)
          C_Timer.After(0.01, function()
              self:DrawSpellSettings(settingsChild, self.selectedSpellID, profile[self.selectedSpellID])
              local b = self.spellListButtons[self.selectedSpellID]
-             if b then Skin:ApplyBackdrop(b); b:SetBackdropColor(unpack(Skin.Colors.accent)); if b.text then b.text:SetTextColor(0,0,0) end end
+             if b then Skin:ApplyBackdrop(b); b:SetBackdropColor(unpack(Skin.Colors.accent)); if b.text then b.text:SetTextColor(1,1,1) end end
          end)
     end
 end
@@ -317,16 +332,14 @@ function Config:DrawSpellSettings(parent, id, opts)
     for _, c in ipairs({parent:GetChildren()}) do c:Hide(); c:SetParent(nil) end
     for _, r in ipairs({parent:GetRegions()}) do r:Hide(); r:SetParent(nil) end
     
-    -- SET SELECTED SPELL NAME (Next to Dropdown)
     if self.selectedSpellLabel then
         local info = C_Spell.GetSpellInfo(id)
-        local sName = (info and info.name) or ("Spell "..id)
-        self.selectedSpellLabel:SetText("|cffffd700Selected: "..sName.."|r")
+        local sName = (info and info.name) or ("SPELL "..id)
+        self.selectedSpellLabel:SetText("|cffffd700"..string.upper(sName).."|r")
     end
 
     if not opts then return end
     
-    -- ScrollChild genişliğini ayarla ki dividerlar düzgün hizalansın
     local scrollFrame = parent:GetParent()
     if scrollFrame then parent:SetWidth(scrollFrame:GetWidth()) end
     
@@ -340,15 +353,9 @@ function Config:DrawSpellSettings(parent, id, opts)
     }
     L.col2 = math.floor(L.width * 0.55)
     
-    -- === HEADER (KULLANICI İSTEĞİ: Global Settings ile AYNI STİL) ===
     function L:Header(text)
-        -- Artık manuel çizim yok, doğrudan Skin fonksiyonunu kullanıyoruz.
-        -- Bu fonksiyon Global Settings'deki çizginin aynısını yaratır.
         local h = Skin:CreateSectionHeader(self.parent, text)
         h:SetPoint("TOPLEFT", self.col1, self.y)
-        
-        -- Skin fonksiyonu standart bir yükseklik kullanır (genelde 30-40px).
-        -- Bir sonraki eleman için Y koordinatını aşağı çekiyoruz.
         self.y = self.y - 40 
     end
     
@@ -367,7 +374,7 @@ function Config:DrawSpellSettings(parent, id, opts)
     function L:Checkbox(label, val, callback, col)
         local x = (col == 2) and self.col2 or self.col1
         local cb = Skin:CreateCheckbox(self.parent, label, val, callback)
-        cb:SetPoint("TOPLEFT", x, self.y - 15) 
+        cb:SetPoint("TOPLEFT", x, self.y) 
         return cb
     end
     
@@ -386,7 +393,6 @@ function Config:DrawSpellSettings(parent, id, opts)
     function L:NextRow() self.y = self.y - self.rowH end
     function L:Space(amount) self.y = self.y - (amount or self.pad) end
     
-    -- === UI ÇİZİMİ ===
     L:Header("POSITION & SIZE")
     L:Slider("X Offset", -400, 400, opts.x or 0, function(v) opts.x = v; addon:UpdateIcon(id) end, 1)
     L:Slider("Y Offset", -400, 400, opts.y or 0, function(v) opts.y = v; addon:UpdateIcon(id) end, 2)
@@ -420,7 +426,6 @@ function Config:DrawSpellSettings(parent, id, opts)
     end
     L:Space()
     
-    -- === DYNAMIC GLOW SETTINGS ===
     local function DrawGlowSection(label, settingKey)
         L:Header(label)
         local gSet = opts[settingKey] or {}
@@ -433,7 +438,6 @@ function Config:DrawSpellSettings(parent, id, opts)
         L:NextRow()
         
         if gSet.enabled then
-            -- 1. Glow Type Dropdown (SOL)
             local types = {{text="Pixel Glow", value="pixel"}, {text="AutoCast Glow", value="autocast"}, {text="Button Glow", value="button"}, {text="Pulse (Alpha)", value="pulse"}}
             local ddLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             ddLabel:SetPoint("TOPLEFT", L.col1, L.y)
@@ -445,16 +449,13 @@ function Config:DrawSpellSettings(parent, id, opts)
             local currT = "Pixel Glow"; for _,t in ipairs(types) do if t.value==gSet.type then currT=t.text end end
             dd.text:SetText(currT)
             
-            -- 2. Threshold Slider (SAĞ)
             local threshLabel = (settingKey == "cdGlow") and "Time Left (s)" or "Time Left (s) (0=All)"
             L:Slider(threshLabel, 0, 30, gSet.threshold or 0, function(v) gSet.threshold = v; addon:UpdateIcon(id) end, 2, 0.5)
             
             L:NextRow()
             
-            -- Row 2: Color
             L:Color("Glow Color", gSet.color, function(c) gSet.color = c; addon:UpdateIcon(id) end, 1)
             
-            -- Column 2: Details
             if gSet.type == "pixel" then
                 L:Slider("Lines", 1, 20, gSet.lines or 8, function(v) gSet.lines = v; addon:UpdateIcon(id) end, 2)
                 L:NextRow()
@@ -476,7 +477,6 @@ function Config:DrawSpellSettings(parent, id, opts)
                  L:NextRow()
             end
         else
-             -- Glow kapalı
         end
         L:Space()
     end
