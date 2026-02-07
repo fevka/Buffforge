@@ -10,49 +10,62 @@ local Engine = addon.GlowEngine
 -- Get Library
 local LCG = LibStub("LibCustomGlow-1.0", true)
 
-function Engine:Show(frame, type, color, freq)
+-- Updated Show to accept 'options' table
+function Engine:Show(frame, type, options)
     if not frame then return end
     
-    -- Prevent redundant calls (Fixes stuttering/resetting animations)
-    if frame._glowType == type then
+    options = options or {}
+    
+    -- SAFETY CLAMP: Frekansı ve hızı sınırla (0 olmasını ve sapıtmayı engeller)
+    local safeFreq = math.max(0.1, options.freq or 0.25)
+    local safeLines = options.lines or 8
+    local safeThick = options.thickness or 2
+    local safeScale = options.scale or 1
+    local safeLength = options.length or 5
+    
+    -- CREATE SIGNATURE: Değer bazlı kontrol (Referans yerine içerik kontrolü)
+    -- Bu sayede ayarlarla oynarken anlık değişimleri algılar.
+    local color = options.color or {1, 1, 0, 1}
+    local r, g, b, a = unpack(color)
+    local colorSig = string.format("%.2f_%.2f_%.2f_%.2f", r, g, b, a)
+    local signature = string.format("%s_%s_%.2f_%d_%d_%.2f_%d", 
+        type, colorSig, safeFreq, safeLines, safeLength, safeScale, safeThick)
+    
+    -- Eğer tamamen aynı ayarlarla zaten çalışıyorsa, dokunma (Loop/Performans koruması)
+    if frame._glowSig == signature then
         return
     end
 
-    -- Clean existing glows if type changed
+    -- Değişiklik var! Eskiyi durdur, yeniyi başlat.
     self:Stop(frame)
+    
+    frame._glowSig = signature
     frame._glowType = type
     
-    -- Default Color (Yellow/Gold)
-    local r, g, b, a = 1, 1, 0, 1
-    if color then
-        r = color.r or color[1] or 1
-        g = color.g or color[2] or 1
-        b = color.b or color[3] or 0
-        a = color.a or color[4] or 1
-    end
-    
-    if not LCG then
-        -- Library missing! Fallback to stop
-        return
-    end
+    if not LCG then return end
 
     if type == "pixel" then
-        -- color, N(8), freq(0.25=4s), length(nil), th(2), x, y
-        LCG.PixelGlow_Start(frame, {r,g,b,a}, 8, 0.25, nil, 2)
+        -- Arg: frame, color, lines, freq, length, th, x, y, border, key
+        LCG.PixelGlow_Start(frame, {r,g,b,a}, safeLines, safeFreq, safeLength, safeThick)
+        
     elseif type == "autocast" then
-        -- color, N(4), freq(0.25=4s), scale(1)
-        LCG.AutoCastGlow_Start(frame, {r,g,b,a}, 4, 0.25, 1)
+        -- Arg: frame, color, particles, freq, scale, x, y, key
+        LCG.AutoCastGlow_Start(frame, {r,g,b,a}, safeLines, safeFreq, safeScale)
+        
     elseif type == "button" then
-        -- color, freq(0.5=2s)
-        LCG.ButtonGlow_Start(frame, {r,g,b,a}, 0.5)
+        -- Arg: frame, color, freq
+        LCG.ButtonGlow_Start(frame, {r,g,b,a}, safeFreq)
+        
     elseif type == "pulse" then
-        self:Pulse(frame, 1.0, 1.2) -- Custom Pulse must stay custom
+        -- Custom Alpha Pulse
+        self:Pulse(frame, safeFreq) 
     end
 end
 
 function Engine:Stop(frame)
     if not frame then return end
     
+    frame._glowSig = nil
     frame._glowType = nil
     
     if LCG then
@@ -60,81 +73,52 @@ function Engine:Stop(frame)
         LCG.AutoCastGlow_Stop(frame)
         LCG.ButtonGlow_Stop(frame)
     end
--- Stop Custom Pulse
-    if frame._pulseAnim then
-        frame._pulseAnim:Stop()
-        frame._pulseAnim = nil
+
+    -- Stop Custom Pulse (Alpha)
+    if frame.PulseAnimGroup then
+        frame.PulseAnimGroup:Stop()
     end
     
-    -- Stop Manual Pulse Updater
-    if frame._pulseUpdater then
-        frame._pulseUpdater:SetScript("OnUpdate", nil)
-        frame._pulseUpdater = nil
-    end
-    
-    -- Reset Scale if Pulse modified it
-    if frame._origScale then
-        frame:SetScale(frame._origScale)
-        frame._origScale = nil
-    end
-    
-    -- Cleanup separate border anim if it exists (legacy fix cleanup)
-    if frame.borderOverlay and frame.borderOverlay._pulseAnim then
-        frame.borderOverlay._pulseAnim:Stop()
-        frame.borderOverlay._pulseAnim = nil
-    end
+    -- Reset Alpha
+    frame:SetAlpha(1)
 end
 
--- Custom Pulse (Library doesn't have this)
--- Using OnUpdate + SetScale to enforce inheritance on all children (Fixes border issues)
-function Engine:Pulse(icon, duration, scale)
-    if not icon then return end
+-- Custom Pulse (Alpha/Breathing Effect)
+function Engine:Pulse(frame, duration)
+    if not frame then return end
     
-    -- Ensure we target the Frame, not the Texture (fixes border/icon desync)
-    if icon.GetObjectType and icon:GetObjectType() == "Texture" then
-        icon = icon:GetParent()
+    if frame.GetObjectType and frame:GetObjectType() == "Texture" then
+        frame = frame:GetParent()
     end
 
-    if not duration then duration = 1 end
-    if not scale then scale = 1.2 end
+    if not frame.PulseAnimGroup then
+        local ag = frame:CreateAnimationGroup()
+        ag:SetLooping("REPEAT")
+        
+        local a1 = ag:CreateAnimation("Alpha")
+        a1:SetOrder(1)
+        a1:SetFromAlpha(1)
+        a1:SetToAlpha(0.4) 
+        a1:SetSmoothing("IN_OUT")
+        
+        local a2 = ag:CreateAnimation("Alpha")
+        a2:SetOrder(2)
+        a2:SetFromAlpha(0.4)
+        a2:SetToAlpha(1)
+        a2:SetSmoothing("IN_OUT")
+        
+        frame.PulseAnimGroup = ag
+        frame.PulseAnim1 = a1
+        frame.PulseAnim2 = a2
+    end
     
-    -- Stop existing
-    self:Stop(icon) 
+    -- Update Duration dynamically
+    duration = math.max(0.2, duration or 1) -- Safety clamp
+    local halfDur = duration / 2
+    frame.PulseAnim1:SetDuration(halfDur)
+    frame.PulseAnim2:SetDuration(halfDur)
     
-    icon._origScale = icon:GetScale()
-    local baseScale = icon._origScale
-    local targetScale = baseScale * scale
-    local startTime = GetTime()
-    
-    -- Create Animation Frame (Updater)
-    local updater = CreateFrame("Frame", nil, icon)
-    icon._pulseUpdater = updater
-    
-    updater:SetScript("OnUpdate", function(self, elapsed)
-        if not icon or not icon:IsVisible() then
-            Engine:Stop(icon)
-            return
-        end
-        
-        local now = GetTime()
-        local timePassed = now - startTime
-        
-        -- Triangle Wave Calculation: 0 -> 1 -> 0 over duration
-        -- Phase goes from 0 to 1
-        local phase = (timePassed % duration) / duration
-        
-        -- Factor goes 0 -> 1 -> 0
-        local factor = 0
-        if phase < 0.5 then
-            factor = phase * 2 -- 0 to 0.5 becomes 0to1
-        else
-            factor = (1 - phase) * 2 -- 0.5 to 1 becomes 1to0
-        end
-        
-        -- Smooth interpolation (Quadratic Ease In/Out)
-        -- factor = factor * factor * (3 - 2 * factor) 
-        
-        local currentScale = baseScale + (targetScale - baseScale) * factor
-        icon:SetScale(currentScale)
-    end)
+    if not frame.PulseAnimGroup:IsPlaying() then
+        frame.PulseAnimGroup:Play()
+    end
 end
