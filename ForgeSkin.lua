@@ -241,14 +241,45 @@ function Skin:CreateSlider(parent, min, max, step, value, callback, width)
     end)
     function slider:SetValue(val)
         val = math.max(self.min, math.min(self.max, val))
-        if self.step then val = math.floor((val / self.step) + 0.5) * self.step end
+        if self.step and self.step > 0 then 
+            -- Floating point hataları için düzeltme
+            local epsilon = 0.0001
+            val = math.floor((val / self.step) + 0.5 + epsilon) * self.step
+            -- Hassas yuvarlama (0.1, 0.01 gibi değerler için)
+            local decimals = 0
+            if self.step < 1 then
+                local stepStr = tostring(self.step)
+                local dotPos = stepStr:find("%.")
+                if dotPos then
+                    decimals = #stepStr - dotPos
+                end
+            end
+            if decimals > 0 then
+                local mult = 10 ^ decimals
+                val = math.floor(val * mult + 0.5) / mult
+            end
+        end
         self.value = val
         local w = self.track:GetWidth()
         local pct = (val - self.min) / (self.max - self.min)
         if pct < 0 then pct = 0 end; if pct > 1 then pct = 1 end
         self.thumb:SetPoint("CENTER", self.track, "LEFT", pct * w, 0)
         self.fill:SetWidth(math.max(1, pct * (w - 2)))
-        local text = (val < 1) and string.format("%.1f", val) or string.format("%.0f", val)
+        
+        -- Dinamik format seçimi
+        local text
+        if val == 0 then
+            text = "0"
+        elseif val < 0.01 then
+            text = string.format("%.3f", val)
+        elseif val < 1 then
+            text = string.format("%.2f", val)
+        elseif val < 10 then
+            text = string.format("%.1f", val)
+        else
+            text = string.format("%.0f", val)
+        end
+        
         if not edit:HasFocus() then edit:SetText(text) end
         if self.callback then self.callback(val) end
     end

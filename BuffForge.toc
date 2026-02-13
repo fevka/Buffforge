@@ -12,5 +12,8 @@ Lib\LibCustomGlow-1.0\LibStub\LibStub.lua
 Lib\LibCustomGlow-1.0\LibCustomGlow-1.0.lua
 GlowEngine.lua
 SpellDatabase.lua
+Update Code\DynamicCooldownTracker.lua
+Update Code\BlizzardAuraTracker.lua
+Update Code\SpellSearchBox.lua
 Core.lua
 Config.lua
