@@ -269,55 +269,98 @@ function addon:ScanAuras()
                 local foundViaTracker = false
 
                 -- Method A: Direct Instance ID from Blizzard's Tracker
-                -- This uses the specific aura instance Blizzard is tracking for this CD.
-                -- Solves "secret" errors because we use the valid ID provided by the game.
                 if BlizzardAuraTracker and BlizzardAuraTracker.GetAuraInfo then
                     local instanceID, unit = BlizzardAuraTracker:GetAuraInfo(spellID)
                     if instanceID then
+                        -- Try to get full Aura Data
                         aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, instanceID)
+                        
+                        -- CRITICAL FIX: If full data is nil (API bug), but we have a valid InstanceID,
+                        -- we can still get the duration from the "secret" DurationObject via our scratch frame.
+                        if not aura then
+                             local info = C_Spell.GetSpellInfo(spellID)
+                             local safeStart, safeDur = GetSafeAuraValues(instanceID)
+                             if safeStart and safeDur then
+                                 aura = {
+                                     name = info and info.name or "Unknown",
+                                     icon = info and info.iconID or 134400,
+                                     applications = 0,
+                                     duration = safeDur,
+                                     expirationTime = safeStart + safeDur,
+                                     auraInstanceID = instanceID -- Keep this for later
+                                 }
+                             end
+                        end
+                        
                         if aura then foundViaTracker = true end
                     end
                 end
 
-                -- Method B: Linked Aura ID (Fallback if tracker doesn't have it active yet)
+                -- Method B: Linked Aura ID (Fallback)
                 if not foundViaTracker then
                     local targetAuraID = spellID
                     if BlizzardAuraTracker and BlizzardAuraTracker.GetLinkedAuraID then
                         targetAuraID = BlizzardAuraTracker:GetLinkedAuraID(spellID)
                     end
-                    
                     aura = C_UnitAuras.GetPlayerAuraBySpellID(targetAuraID)
-                    
-                    -- Fallback: Try Original Spell ID
                     if not aura and targetAuraID ~= spellID then
                         aura = C_UnitAuras.GetPlayerAuraBySpellID(spellID)
                     end
                     
-                    -- Method C: Name Search (ULTIMATE FALLBACK - SAFELY WRAPPED)
                     if not aura then
                         local spellName = C_Spell.GetSpellName(spellID)
                         if spellName then
-                            local function SafeNameCheck(aura)
-                                local match = false
-                                -- pcall prevents "secret string" errors
-                                pcall(function()
-                                    if aura and aura.name == spellName then match = true end
-                                end)
-                                return match
-                            end
-                            
-                            -- Use AuraUtil loop safely
+                            -- Use AuraUtil loop safely with pcall wrapper
                             AuraUtil.ForEachAura("player", "HELPFUL", nil, function(a)
-                                if SafeNameCheck(a) then
+                                local safeMatch = false
+                                -- Wrap the comparison in pcall to handle 'secret' strings safely
+                                pcall(function()
+                                    if a.name and a.name == spellName then
+                                        safeMatch = true
+                                    end
+                                end)
+                                
+                                if safeMatch then
                                     aura = a
                                     return true
                                 end
-                            end, true) -- usePackedAura=true
+                            end, true)
                         end
                     end
                 end
-
-            end -- closes 'if not aura then'
+            end 
+            
+            -- PANDEMIC CHECK (From active_buff_isleyisi.md)
+            -- If the tracker says we have a Pandemic (Refresh Window) active, we should trigger a glow.
+            local isPandemic = false
+            if BlizzardAuraTracker and BlizzardAuraTracker.GetPandemicStatus then
+                isPandemic = BlizzardAuraTracker:GetPandemicStatus(spellID)
+            end
+            
+            -- Filter based on settings
+            if aura and not (configOpen or settings.alwaysShow) then
+                if not (settings.buffGlow and settings.buffGlow.enabled) then
+                     aura = nil
+                end
+            end
+            
+            -- CD Logic fallback...
+            if not aura and data.tracker and settings.trackType ~= "buff" then
+                local isOnCD = data.tracker.state and data.tracker.state.isOnCooldown
+                if isOnCD or settings.alwaysShow or configOpen then
+                    aura = {
+                        expirationTime = 0, duration = 0,
+                        icon = C_Spell.GetSpellTexture(spellID),
+                        applications = 0, isCooldownOnly = true
+                    }
+                end
+            elseif not aura and (settings.alwaysShow or configOpen) then
+                aura = {
+                    expirationTime = 0, duration = 0,
+                    icon = C_Spell.GetSpellTexture(spellID),
+                    applications = 0
+                }
+            end
 
             -- Helper to sanitize aura values using the scratch frame
             local function GetSafeAuraValues(instanceID)
@@ -543,7 +586,7 @@ function addon:ScanAuras()
                 local showTimer = (settings.showTimerText ~= false)
                 
                 if data.timerText then
-                    if showTimer and remaining > 0 then 
+                    if showTimer and remaining > 0 and not isDurationZero then 
                         if remaining < 60 then
                             if remaining < 10 then data.timerText:SetText(format("%.1f", remaining))
                             else data.timerText:SetText(format("%.0f", remaining)) end

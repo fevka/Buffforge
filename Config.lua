@@ -163,9 +163,11 @@ function Config:DrawSpells(p)
          if id then
              local k = GetCharKey()
              BuffForgeDB.profile[k] = BuffForgeDB.profile[k] or {}
+             
+             -- Force Add / Update
              if not BuffForgeDB.profile[k][id] then
+                 print("|cff00ff00BuffForge:|r Added new spell: "..name.." ("..id..")")
                  local defaults = {enabled=true, type="icon", size=40, simulatedMode=true}
-                 -- Try to get defaults from DB if available
                  if addon.GetSpellData then
                      local dbData = addon:GetSpellData(id)
                      if dbData then
@@ -174,17 +176,25 @@ function Config:DrawSpells(p)
                      end
                  end
                  BuffForgeDB.profile[k][id] = defaults
+             else
+                 print("|cff00ff00BuffForge:|r Selected existing spell: "..name.." ("..id..")")
              end
-             addon:UpdateIcon(id); 
+             
+             addon:UpdateIcon(id)
              
              -- Select the new spell
-             self.selectedSpellID = id
+             Config.selectedSpellID = id
 
-             local parent = p
-             -- Clean and redraw
-             for _, c in ipairs({parent:GetChildren()}) do c:Hide(); c:SetParent(nil) end
-             for _, r in ipairs({parent:GetRegions()}) do r:Hide(); r:SetParent(nil) end
-             self:DrawSpells(parent)
+             -- Force UI Refresh (Re-draw spell list)
+             print("|cff00ff00BuffForge:|r Icon updated. Refreshing UI...")
+             
+             -- Use the global Config object reference instead of potentially lost 'self'
+             if Config.SelectTab then
+                 Config:SelectTab("Spells")
+             else
+                 -- Fallback if something is very wrong
+                 print("|cffff0000BuffForge Error:|r Could not refresh Config UI (SelectTab missing)")
+             end
          end
     end)
     searchBox:SetPoint("TOPLEFT", 0, -5)

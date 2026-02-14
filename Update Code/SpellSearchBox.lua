@@ -329,10 +329,11 @@ function SpellSearchBox:Create(parent, onSelectCallback)
 
     -- Logic
     function frame:OnSelect(entry)
-        editbox:SetText(entry.name)
+        -- Simplify: Just trigger callback. Don't touch EditBox text to avoid taint.
         dropdown:Hide()
         editbox:ClearFocus()
         if onSelectCallback then
+            -- Pure data pass-through
             onSelectCallback(entry.id, entry.name, entry.isItem and "item" or "spell")
         end
     end
@@ -396,84 +397,7 @@ end
 ------------------------------------------------------------------------
 local pickerFrame = nil
 
-local function GetSpellFromFrame(focus)
-    if not focus then return nil end
-    
-    local spellID = nil
-    local isItem = false
 
-    -- 1. Identify from Action Button (Standard, ElvUI, Bartender)
-    if focus.action then
-        local type, id = GetActionInfo(focus.action)
-        if type == "spell" then
-            spellID = id
-        elseif type == "macro" then
-            spellID = GetMacroSpell(id)
-        elseif type == "item" then
-            spellID = id
-            isItem = true
-        end
-    end
-    
-    -- 2. Identify from generic fields (SpellBook, Talents, WeakAuras)
-    if not spellID then
-        spellID = focus.spellID or (focus.GetSpellId and focus:GetSpellId()) or (focus.GetSpellID and focus:GetSpellID())
-    end
-    if not spellID then
-        local itemID = focus.itemID or (focus.GetItemId and focus:GetItemId()) or (focus.GetItemID and focus:GetItemID())
-        if itemID then
-            spellID = itemID
-            isItem = true
-        end
-    end
-
-    -- 3. Check for 'cooldownInfo' (User's specific BlizzardViewer case)
-    if not spellID and focus.cooldownInfo then
-         spellID = focus.cooldownInfo.spellID or focus.cooldownInfo.overrideSpellID
-    end
-
-    -- 4. Iterative search for children (for anonymous containers)
-    if not spellID and focus.GetChildren then
-        local children = {focus:GetChildren()}
-        for _, child in ipairs(children) do
-            if child:IsMouseOver() then
-                if child.cooldownInfo then
-                    spellID = child.cooldownInfo.spellID or child.cooldownInfo.overrideSpellID
-                    if spellID then break end
-                end
-                if child.spellID or child.itemID then
-                    spellID = child.spellID or child.itemID
-                    isItem = child.itemID ~= nil
-                    if spellID then break end
-                end
-            end
-        end
-    end
-
-    -- 5. SpellBook legacy fallback
-    if not spellID and focus.spellbookType then
-        local slot = focus.slot
-        if slot then
-            local info = C_SpellBook.GetSpellBookItemInfo(slot, focus.spellbookType)
-            if info and info.spellID then
-                spellID = info.spellID
-            end
-        end
-    end
-    
-    if spellID then
-        local name
-        if isItem then
-            name = C_Item.GetItemNameByID(spellID)
-        else
-            local info = C_Spell.GetSpellInfo(spellID)
-            name = info and info.name
-        end
-        return spellID, name, isItem and "item" or "spell"
-    end
-
-    return nil
-end
 
 local function IsPicking()
     return pickerFrame and pickerFrame:IsShown()
@@ -493,7 +417,7 @@ function SpellSearchBox:StartPickMode(onSelect)
         pickerFrame.text = t
     end
 
-    pickerFrame.text:SetText("PICK SKILL MODE\n|cffffffffClick on a spell in your spellbook or action bar|r\n|cffaaaaaa(Right-click or ESC to cancel)|r")
+    pickerFrame.text:SetText("PICK SKILL MODE\n|cffffffffClick on a spell/item in your spellbook, bag, or action bar|r\n|cffaaaaaa(Right-click or ESC to cancel)|r")
     SetCursor("CAST_CURSOR")
     pickerFrame:Show()
     
@@ -516,30 +440,37 @@ function SpellSearchBox:StartPickMode(onSelect)
             return
         end
 
-        -- Handle Click
+        -- Handle Click (Passive Detection)
         if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
             local isRight = IsMouseButtonDown("RightButton")
             
-            -- Wait for button release to avoid double triggers in menus
-            self:SetScript("OnUpdate", function(innerSelf)
+             self:SetScript("OnUpdate", function(innerSelf)
                 if not IsMouseButtonDown("LeftButton") and not IsMouseButtonDown("RightButton") then
                     pickerFrame:Hide()
                     ResetCursor()
                     
                     if isRight then
-                        print("|cff00ccffBuffForge:|r Pick mode cancelled.")
+                        print("|cff00ccffBuffForge:|r Pick cancelled.")
                     else
-                        -- Now that we've released and the mode frame is hidden, get the focus
-                        -- GetMouseFocus works best when no interceptor is present
-                        local focus = GetMouseFocus and GetMouseFocus() or (GetMouseFoci and GetMouseFoci()[1])
-                        local id, name, type = GetSpellFromFrame(focus)
-                        
-                        if id and onSelect then
-                            onSelect(id, name, type)
-                            print("|cff00ccffBuffForge:|r Picked: |cffffffff"..name.." ("..id..")|r")
+                        -- Use the new GetTargetUnderMouse logic from BlizzardAuraTracker
+                        if BlizzardAuraTracker and BlizzardAuraTracker.GetTargetUnderMouse then
+                             local id, name, type = BlizzardAuraTracker:GetTargetUnderMouse()
+                             
+                             if id then
+                                 print("|cff00ccffBuffForge:|r Picked: "..(name or "Unknown").." ("..id..")")
+                                 -- Pass back to the SearchBox (Config logic)
+                                 if onSelect then 
+                                     onSelect(id, name, type) 
+                                 end
+                                 
+                                 if Config and Config.RefreshUI then
+                                     C_Timer.After(0.1, function() Config:RefreshUI() end)
+                                 end
+                             else
+                                 print("|cffff0000BuffForge:|r No valid spell or item found under mouse.")
+                             end
                         else
-                             local fName = focus and (focus.GetName and focus:GetName() or tostring(focus)) or "None"
-                             print("|cff00ccffBuffForge:|r Could not identify a spell on: |cffffffff"..fName.."|r")
+                             print("|cffff0000BuffForge Error:|r BlizzardAuraTracker module missing!")
                         end
                     end
                     innerSelf:SetScript("OnUpdate", nil)
